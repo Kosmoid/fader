@@ -92,18 +92,46 @@ local function defineObject(object)
 	end
 end
 
-local function cleanObject(list: {Instance}, object: Instance, recursive: boolean?)
-	local index = table.find(list, object)
+local function removeRef(objects: {Instance}, object)
+	local index = table.find(objects, object)
 	if index then
-		table.remove(list, index)
+		table.remove(objects, index)
 	end
 	objectRef[object] = nil
-	for _, descendant in next, object:GetDescendants() do
-		local index = table.find(list, descendant)
-		if index then
-			table.remove(list, index)
+end
+
+local function removeTween(tweens: {Instance}, objects: {Instance})
+	for _, tween in next, tweens do
+		if table.find(objects, tween.Instance) then
+			tween:Destroy()
 		end
-		objectRef[descendant] = nil
+	end
+end
+
+local function cleanObject(interface, object: Instance, recursive: boolean?)
+	local objects = interface._objects
+	local tweensIn = interface._groupIn
+	local tweensOut = interface._groupOut
+
+	removeRef(objects, object)
+	if tweensIn then
+		removeTween(tweensIn._tweens, {object})
+	end
+	if tweensOut then
+		removeTween(tweensOut._tweens, {object})
+	end
+
+	if recursive ~= false then
+		local descendants = object:GetDescendants()
+		for _, descendant in next, descendants do
+			removeRef(objects, descendant)
+		end
+		if tweensIn then
+			removeTween(tweensIn._tweens, descendants)
+		end
+		if tweensOut then
+			removeTween(tweensOut._tweens, descendants)
+		end
 	end
 end
 
@@ -156,9 +184,8 @@ function Fade:In(info: TweenInfo?)
 	if self._groupIn then
 		self._groupIn:Destroy()
 	end
-	local group = TweenGroup.new(tweens, info)
-	self._groupIn = group
-	return group
+	self._groupIn = TweenGroup.new(tweens, info)
+	return self._groupIn
 end
 
 function Fade:Out(info: TweenInfo?)
@@ -171,9 +198,8 @@ function Fade:Out(info: TweenInfo?)
 	if self._groupOut then
 		self._groupOut:Destroy()
 	end
-	local group = TweenGroup.new(tweens, info)
-	self._groupOut = group
-	return group
+	self._groupOut = TweenGroup.new(tweens, info)
+	return self._groupOut
 end
 
 return function(objects: {Instance}, recursive: boolean?)
@@ -189,28 +215,30 @@ return function(objects: {Instance}, recursive: boolean?)
 
 			-- add future descendants
 			object.DescendantAdded:Connect(function(descendant)
-				defineObject(descendant)
-				table.insert(objects, descendant)
-				-- add to tween groups
-				local groupIn, groupOut = interface._groupIn, interface._groupOut
-				if groupIn then
-					local tween = TweenService:Create(descendant, groupIn._info, objectRef[descendant][1])
-					table.insert(groupIn._tweens, tween)
-				end
-				if groupOut then
-					local tween = TweenService:Create(descendant, groupOut._info, objectRef[descendant][2])
-					table.insert(groupOut._tweens, tween)
+				if objectRef[descendant] == nil then
+					defineObject(descendant)
+					table.insert(objects, descendant)
+					-- add to tween groups
+					local groupIn, groupOut = interface._groupIn, interface._groupOut
+					if groupIn then
+						local tween = TweenService:Create(descendant, groupIn._info, objectRef[descendant][1])
+						table.insert(groupIn._tweens, tween)
+					end
+					if groupOut then
+						local tween = TweenService:Create(descendant, groupOut._info, objectRef[descendant][2])
+						table.insert(groupOut._tweens, tween)
+					end
 				end
 			end)
 
 			-- clean up references
 			object.DescendantRemoving:Connect(function(descendant)
-				cleanObject(objects, descendant, recursive)
+				cleanObject(interface, descendant, recursive)
 			end)
 		end
 
 		object.Destroying:Connect(function()
-			cleanObject(objects, object, recursive)
+			cleanObject(interface, object, recursive)
 		end)
 	end
 
