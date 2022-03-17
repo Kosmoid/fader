@@ -67,7 +67,6 @@ local function getProperties(object: Instance)
 			end
 		end
 	end
-	return {}
 end
 
 local objectRef = {}
@@ -75,20 +74,23 @@ local objectRef = {}
 local function defineObject(object)
 	if objectRef[object] == nil then
 		local _in, _out = {}, {}
-		for _, property in next, getProperties(object) do
-			local value = object[property]
-			_in[property] = value
-			_out[property] = 1
-		end
-		for class, override in next, outOverride do
-			if object:IsA(class) then
-				for property, value in next, override do
-					_out[property] = value
-				end
-				break
+		local properties = getProperties(object)
+		if properties then
+			for _, property in next, properties do
+				local value = object[property]
+				_in[property] = value
+				_out[property] = 1
 			end
+			for class, override in next, outOverride do
+				if object:IsA(class) then
+					for property, value in next, override do
+						_out[property] = value
+					end
+					break
+				end
+			end
+			objectRef[object] = {_in, _out}
 		end
-		objectRef[object] = {_in, _out}
 	end
 end
 
@@ -178,8 +180,10 @@ function Fade:In(info: TweenInfo?)
 	info = info or defaultInfo
 	local tweens = {}
 	for _, object in next, self._objects do
-		local tween = TweenService:Create(object, info, objectRef[object][1])
-		table.insert(tweens, tween)
+		if objectRef[object] then
+			local tween = TweenService:Create(object, info, objectRef[object][1])
+			table.insert(tweens, tween)
+		end
 	end
 	if self._groupIn then
 		self._groupIn:Destroy()
@@ -192,8 +196,10 @@ function Fade:Out(info: TweenInfo?)
 	info = info or defaultInfo
 	local tweens = {}
 	for _, object in next, self._objects do
-		local tween = TweenService:Create(object, info, objectRef[object][2])
-		table.insert(tweens, tween)
+		if objectRef[object] then
+			local tween = TweenService:Create(object, info, objectRef[object][2])
+			table.insert(tweens, tween)
+		end
 	end
 	if self._groupOut then
 		self._groupOut:Destroy()
@@ -219,14 +225,16 @@ return function(objects: {Instance}, recursive: boolean?)
 					defineObject(descendant)
 					table.insert(objects, descendant)
 					-- add to tween groups
-					local groupIn, groupOut = interface._groupIn, interface._groupOut
-					if groupIn then
-						local tween = TweenService:Create(descendant, groupIn._info, objectRef[descendant][1])
-						table.insert(groupIn._tweens, tween)
-					end
-					if groupOut then
-						local tween = TweenService:Create(descendant, groupOut._info, objectRef[descendant][2])
-						table.insert(groupOut._tweens, tween)
+					if objectRef[descendant] then
+						local groupIn, groupOut = interface._groupIn, interface._groupOut
+						if groupIn then
+							local tween = TweenService:Create(descendant, groupIn._info, objectRef[descendant][1])
+							table.insert(groupIn._tweens, tween)
+						end
+						if groupOut then
+							local tween = TweenService:Create(descendant, groupOut._info, objectRef[descendant][2])
+							table.insert(groupOut._tweens, tween)
+						end
 					end
 				end
 			end)
